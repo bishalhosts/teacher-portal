@@ -38,9 +38,11 @@ button:disabled{opacity:.5}
 .success-box{background:#d9ead3;border:2px solid #1e8a3e;color:#1e8a3e;padding:24px 16px;text-align:center;border-radius:6px}
 .success-box .tick{font-size:64px;line-height:1}
 .success-box h2{margin:8px 0 10px;font-size:26px}
-.success-box p{margin:0 0 18px;font-weight:600;font-size:16px}
+.success-box p{margin:0 0 14px;font-weight:600;font-size:16px}
 .success-box button{background:#1e8a3e;width:auto;padding:12px 28px;margin:0 auto;display:inline-block;font-weight:700}
-.success-box #lockMsg{color:#c62828;margin:0}
+.success-box #lockMsg,.success-box .err{color:#c62828}
+.success-box .warn{color:#b45309}
+#syncMsg{margin:14px 0 0;font-size:14px}
 small{color:#5a6577}
 [hidden]{display:none!important}
 </style>
@@ -73,6 +75,7 @@ small{color:#5a6577}
       <p id="successMsg"></p>
       <button id="editBtn" onclick="enableEdit()">Edit Attendance</button>
       <p id="lockMsg" hidden>Attendance is locked after 6:00 PM.</p>
+      <p id="syncMsg"></p>
     </div>
     <div id="markSection" hidden><div id="list"></div></div>
   </div>
@@ -89,39 +92,49 @@ const SCHOOL = 'JanaPrakash School';
 const SUB = 'Daily Attendance Portal';
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
+const ls = k => localStorage.getItem(k) || '';
+const jget = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const getPending = () => jget('pending');   // attendance saved on this phone, waiting to reach the sheet
+const DN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-let code = localStorage.getItem('code') || '', teacher = localStorage.getItem('teacher') || '', cls = '', savedPin = '';
-let D = null, list = [], lastTaken = null, skew = 0, loginP = null, dataP = null, dataAt = 0;
+let code = ls('code'), teacher = ls('teacher'), cls = ls('cls'), skew = +ls('skew') || 0;
+let D = null, list = [], lastTaken = null, dirty = false, syncing = false, loginP = null, dataP = null;
 
 $('school').textContent = SCHOOL; $('sub').textContent = SUB; document.title = SCHOOL;
 function msg(t, c) { $('msg').textContent = t; $('msg').className = c || ''; }
-function locked() { return D && Date.now() + skew >= D.lockAt; } // 6:00 PM Nepal time, taken from the server's clock
+function locked() { return !!D && Date.now() + skew >= D.lockAt; }                       // 6:00 PM Nepal time
+function nepalToday() { return new Date(Date.now() + skew + 345 * 60000).toISOString().slice(0, 10); }
+function fmtTime(ms) { const t = new Date(ms + 345 * 60000); let h = t.getUTCHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return String(h).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0') + ' ' + ap; }
+async function hash(s) { try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return 'p:' + s; } }
+function localInfo(iso) {   // used only when the phone is offline on a new day
+  const p = iso.split('-'), wd = new Date(Date.UTC(+p[0], p[1] - 1, +p[2])).getUTCDay();
+  return { iso, closed: '', now: Date.now() + skew, lockAt: Date.UTC(+p[0], p[1] - 1, +p[2], 18) - 345 * 60000, label: DN[wd] + ' | ' + iso };
+}
 
 async function call(o) {
   if (API.indexOf('YOUR_WEB_APP') >= 0) throw new Error('Put your Apps Script web app URL in index.html (API).');
   o.code = code;
   const r = await fetch(API, { method: 'POST', body: JSON.stringify(o) });
   const j = await r.json();
-  if (j.error) throw new Error(j.error);
+  if (j.error) { const e = new Error(j.error); e.server = true; throw e; }   // e.server = the server answered; otherwise it is a network problem
   return j;
 }
-function setUser(r) {
-  savedPin = String(r.pin || '');
-  if (!savedPin) throw new Error('No PIN set for this teacher in the Sheet.');
-  teacher = r.teacher; cls = r.cls; localStorage.setItem('teacher', teacher);
-}
-// Loads students and today's marks in the background, so they are ready when the PIN is entered.
-function fetchData() { dataAt = Date.now(); dataP = call({ action: 'pullData' }); dataP.catch(() => {}); return dataP; }
-function showPin() { $('login').hidden = true; $('pinScreen').hidden = false; $('pinName').textContent = teacher; $('pin').value = ''; $('pin').focus(); }
 function fail(e) {
   let m = e.message;
   if (/^Bad request/.test(m)) m = 'The server is out of date. In Apps Script: Deploy > Manage deployments > Edit > New version > Deploy.';
-  dataP = null;
-  if (/wrong|expired|not assigned/i.test(m)) {
-    localStorage.removeItem('code'); code = ''; loginP = null;
-    $('pinScreen').hidden = true; $('app').hidden = true; $('login').hidden = false;
+  if (e.server && /wrong|expired|not assigned/i.test(m)) {
+    localStorage.removeItem('code'); localStorage.removeItem('pinHash'); code = ''; loginP = null; dataP = null;
+    $('pinScreen').hidden = true; $('app').hidden = true; $('login').hidden = false; m += ' Enter your new code.';
   }
   msg(m, 'err');
+}
+function showPin() { $('login').hidden = true; $('pinScreen').hidden = false; $('pinName').textContent = teacher; $('pin').value = ''; $('pin').focus(); }
+
+// Downloads the class data and keeps a copy on the phone. Nothing is shown until the PIN is correct.
+function fetchData() {
+  dataP = call({ action: 'pullData' }).then(r => { skew = r.d.now - Date.now(); localStorage.setItem('skew', skew); jset('cache', { iso: r.d.iso, d: r.d, list: r.list, marks: r.marks, taken: r.taken }); return r; });
+  dataP.catch(() => {}); return dataP;
 }
 
 async function login() {
@@ -129,30 +142,42 @@ async function login() {
   if (!code) return;
   $('lbtn').disabled = true; msg('Verifying code...');
   try {
-    setUser(await call({ action: 'login' }));
-    localStorage.setItem('code', code);
-    fetchData();                     // start loading now, but show nothing until the PIN is correct
-    showPin(); msg('Code verified. Enter your PIN.', 'ok');
+    const r = await call({ action: 'login' });
+    if (!r.pin) throw new Error('No PIN set for this teacher in the Sheet.');
+    if (ls('cls') && ls('cls') !== r.cls) { localStorage.removeItem('cache'); localStorage.removeItem('pending'); }   // different class on this phone
+    teacher = r.teacher; cls = r.cls;
+    localStorage.setItem('code', code); localStorage.setItem('teacher', teacher); localStorage.setItem('cls', cls);
+    localStorage.setItem('pinHash', await hash(code + ':' + r.pin));
+    fetchData(); showPin(); msg('Code verified. Enter your PIN.', 'ok');
   } catch (e) { fail(e); }
   $('lbtn').disabled = false;
 }
 
 async function checkPin() {
   const p = $('pin').value.trim(); if (!p) return;
-  $('pbtn').disabled = true; msg('Checking PIN...');
-  try {
-    if (!savedPin && !loginP) loginP = call({ action: 'login' });
-    if (loginP) { setUser(await loginP); loginP = null; }
-    if (p !== savedPin) { msg('Wrong PIN', 'err'); $('pin').value = ''; return; }
-    $('pinScreen').hidden = true; $('app').hidden = false; msg('Loading attendance...');
-    render(!dataP || Date.now() - dataAt > 120000 ? await fetchData() : await dataP);
-  } catch (e) {
-    $('app').hidden = true; loginP = null; if ($('login').hidden) $('pinScreen').hidden = false; fail(e);
-  } finally { $('pbtn').disabled = false; }
+  const same = async () => (await hash(code + ':' + p)) === ls('pinHash');
+  let ok = await same();
+  if (!ok && loginP) { try { await loginP; } catch (e) {} ok = await same(); }   // the PIN may have been changed in the sheet
+  if (!ok) { msg('Wrong PIN', 'err'); $('pin').value = ''; return; }
+  $('pinScreen').hidden = true; $('app').hidden = false; openApp();
+}
+
+// Opens instantly from the copy on the phone (works offline), then refreshes quietly from the sheet.
+function openApp() {
+  const c = jget('cache'), today = nepalToday();
+  if (c && c.list) {
+    const same = c.iso === today;
+    render({ d: same ? c.d : localInfo(today), list: c.list, marks: same ? c.marks : {}, taken: same ? c.taken : null });
+    Promise.resolve(loginP).then(() => dataP).then(r => { if (r && !dirty && !getPending()) render(r); }).catch(() => {});
+  } else {
+    msg('Loading attendance...');
+    Promise.resolve(loginP).then(() => dataP || fetchData()).then(render).catch(e => msg('Could not load: ' + e.message + ' Check the internet and open the app again.', 'err'));
+  }
+  sync();
 }
 
 function render(r) {
-  D = r.d; skew = D.now - Date.now();
+  D = r.d; skew = D.now - Date.now(); dirty = false;
   $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
   msg('');
   if (D.closed) {
@@ -160,17 +185,18 @@ function render(r) {
     $('list').innerHTML = '<p class="err" style="text-align:center;font-weight:700;padding:20px">School closed today: ' + esc(D.closed) + '</p>';
     return;
   }
-  list = r.list.map(s => ({ roll: s.roll, name: s.name, s: r.marks[String(s.roll)] === 'A' ? 'A' : 'P' }));
-  lastTaken = r.taken;
-  if (r.taken) showSuccess(r.taken); else showForm();
+  const p = getPending(), usePending = !!p && p.iso === D.iso, marks = {};
+  if (usePending) p.marks.forEach(m => marks[String(m.roll)] = m.s); else Object.assign(marks, r.marks);
+  list = r.list.map(s => ({ roll: s.roll, name: s.name, s: marks[String(s.roll)] === 'A' ? 'A' : 'P' }));
+  lastTaken = usePending ? { by: p.by, time: p.time } : r.taken;
+  if (lastTaken) showSuccess(lastTaken); else showForm();
 }
 
 function showSuccess(t) {
   $('successBox').hidden = false; $('markSection').hidden = true; $('footBar').hidden = true;
   $('successMsg').textContent = 'Submitted at ' + t.time + ' by ' + t.by;
-  const lk = locked(); $('editBtn').hidden = lk; $('lockMsg').hidden = !lk; msg('');
+  const lk = locked(); $('editBtn').hidden = lk; $('lockMsg').hidden = !lk; msg(''); setSync();
 }
-
 function showForm() {
   $('successBox').hidden = true; $('markSection').hidden = false;
   if (locked()) {
@@ -182,7 +208,6 @@ function showForm() {
   msg(lastTaken ? 'Editing saved attendance. Green = present, red = absent.' : 'Please mark attendance.');
   draw();
 }
-
 function enableEdit() { if (locked()) showSuccess(lastTaken); else showForm(); }
 
 function draw() {
@@ -192,35 +217,56 @@ function draw() {
   const p = list.filter(s => s.s == 'P').length;
   $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
 }
-function mark(i, v) { list[i].s = v; draw(); }
+function mark(i, v) { list[i].s = v; dirty = true; draw(); }
 
-async function save() {
+// Save goes to the phone first (instant), then to the sheet in the background.
+function save() {
   const p = list.filter(s => s.s == 'P').length, a = list.length - p;
   if (!list.length || !confirm('Class ' + cls + ': ' + p + ' present, ' + a + ' absent. Save?')) return;
-  $('sbtn').disabled = true; msg('Saving...');
-  try {
-    const r = await call({ action: 'save', marks: list.map(s => ({ roll: s.roll, s: s.s })) });
-    lastTaken = { time: r.time, by: teacher };
-    showSuccess(lastTaken); msg('Saved successfully!', 'ok');   // list, Copy absent and Save disappear here
-  } catch (e) { msg('Not saved: ' + e.message, 'err'); }
-  $('sbtn').disabled = false;
+  const takenAt = Date.now() + skew, time = fmtTime(takenAt), map = {};
+  list.forEach(s => map[String(s.roll)] = s.s);
+  jset('pending', { iso: D.iso, marks: list.map(s => ({ roll: s.roll, s: s.s })), takenAt, time, by: teacher, status: 'waiting' });
+  jset('cache', { iso: D.iso, d: D, list: list.map(s => ({ roll: s.roll, name: s.name })), marks: map, taken: { by: teacher, time } });
+  dirty = false; lastTaken = { by: teacher, time };
+  showSuccess(lastTaken); msg('Saved on this phone.', 'ok');   // list, Copy absent and Save disappear here
+  sync();
+}
+
+// Sends the saved attendance to the sheet. Retries when the internet returns.
+async function sync() {
+  const p = getPending(); if (!p || syncing || p.status === 'rejected' || !code) return;
+  syncing = true; setSync();
+  try { await call({ action: 'save', date: p.iso, takenAt: p.takenAt, marks: p.marks }); localStorage.removeItem('pending'); }
+  catch (e) {
+    if (e.server && /closed|locked|too old|no students|changed/i.test(e.message)) { p.status = 'rejected'; p.err = e.message; jset('pending', p); }   // the sheet refused it: stop retrying
+  }
+  syncing = false; setSync();
+}
+function setSync() {
+  const el = $('syncMsg'), p = getPending();
+  if (!p || !D || p.iso !== D.iso) { el.textContent = '☁️ Synced to the sheet'; el.className = 'ok'; }
+  else if (p.status === 'rejected') { el.textContent = '⚠️ Not saved to the sheet: ' + p.err + ' Tell the admin.'; el.className = 'err'; }
+  else if (syncing) { el.textContent = 'Sending to the sheet...'; el.className = ''; }
+  else { el.textContent = '⏳ Saved on this phone. It will be sent to the sheet when the internet is available.'; el.className = 'warn'; }
 }
 
 function copyAbs() {
-  const t = 'Class ' + cls + ' absent (' + (D ? D.label.split(' | ')[2] : '') + '): ' + (list.filter(s => s.s == 'A').map(s => s.roll + ' ' + s.name).join(', ') || 'none');
+  const t = 'Class ' + cls + ' absent (' + (D ? D.iso : '') + '): ' + (list.filter(s => s.s == 'A').map(s => s.roll + ' ' + s.name).join(', ') || 'none');
   navigator.clipboard.writeText(t).then(() => msg('Absent list copied', 'ok'));
 }
-
-function logout() { localStorage.removeItem('code'); localStorage.removeItem('teacher'); location.reload(); }
+function logout() { ['code', 'teacher', 'pinHash'].forEach(k => localStorage.removeItem(k)); location.reload(); }   // unsent attendance stays on the phone
 
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 $('pin').addEventListener('keydown', e => { if (e.key === 'Enter') checkPin(); });
+window.addEventListener('online', sync);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+setInterval(sync, 30000);
 
-// Already logged in on this phone: ask for the PIN, and load the data quietly while the teacher types it.
-if (code && teacher) {
+// Already logged in on this phone: ask for the PIN; check the code and refresh the data quietly meanwhile.
+if (code && teacher && ls('pinHash')) {
   showPin();
-  loginP = call({ action: 'login' });
-  loginP.then(r => { setUser(r); fetchData(); }).catch(() => {});
+  loginP = call({ action: 'login' }).then(async r => { if (r.pin) localStorage.setItem('pinHash', await hash(code + ':' + r.pin)); return r; });
+  loginP.then(() => fetchData()).catch(e => { if (e.server) fail(e); });
 } else { $('login').hidden = false; }
 </script>
 </body>
