@@ -71,7 +71,6 @@ small{color:#5a6577}
   </div>
   
   <div class="card">
-    <!-- Success Box -->
     <div id="successBox" class="success-box" hidden>
       <h3>✅ Attendance Completed</h3>
       <p id="successMsg"></p>
@@ -81,10 +80,6 @@ small{color:#5a6577}
     <div id="taken" class="note" hidden></div>
     
     <div id="markSection">
-      <div style="display:flex;gap:8px">
-        <button class="g" style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('P')">All present</button>
-        <button style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('A')">All absent</button>
-      </div>
       <div id="list"></div>
     </div>
   </div>
@@ -107,9 +102,8 @@ let code = localStorage.getItem('code') || '';
 let cls = localStorage.getItem('cls') || '';
 let teacher = localStorage.getItem('teacher') || '';
 let savedPin = localStorage.getItem('pin') || '';
-let savedList = JSON.parse(localStorage.getItem('list') || '[]');
 
-let D, list = [];
+let D, list = [], isEditing = false;
 
 $('school').textContent = SCHOOL;
 $('sub').textContent = SUB;
@@ -130,7 +124,7 @@ async function login() {
   if (!code) return;
   
   $('lbtn').disabled = true;
-  msg('Downloading class data...');
+  msg('Verifying code...');
   
   try {
     const r = await call({ action: 'login' });
@@ -139,23 +133,18 @@ async function login() {
     cls = r.cls;
     teacher = r.teacher;
     savedPin = r.pin;
-    D = r.d;
-    
-    const d = await call({ action: 'pullData', cls });
-    savedList = d.list;
     
     localStorage.setItem('code', code);
     localStorage.setItem('cls', cls);
     localStorage.setItem('teacher', teacher);
     localStorage.setItem('pin', savedPin);
-    localStorage.setItem('list', JSON.stringify(savedList));
     
     $('login').hidden = true;
     $('pinScreen').hidden = false;
     $('pinName').textContent = teacher;
     $('pin').value = '';
     $('pin').focus();
-    msg('Data saved! Enter your PIN.', 'ok');
+    msg('Code verified! Enter your PIN.', 'ok');
     
   } catch (e) {
     msg(e.message, 'err');
@@ -179,26 +168,32 @@ function checkPin() {
 async function loadList() {
   msg('Checking status...');
   try {
-    const r = await call({ action: 'pullData', cls }); // Pull latest status
+    const r = await call({ action: 'pullData', cls }); 
     D = r.d;
+    isEditing = false;
     
     if (D.closed) {
       msg('School closed today: ' + D.closed, 'err');
       $('list').innerHTML = '<p style="text-align:center;color:#c62828;font-weight:bold;">School is closed today.</p>';
       $('sbtn').disabled = true;
+      $('footBar').hidden = true;
+      $('markSection').hidden = false;
       return;
     }
 
     $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
     
-    // Check if already taken
-    const s = await call({ action: 'students', cls });
-    if (s.taken) {
-      $('taken').hidden = false;
-      $('taken').textContent = 'Attendance submitted by ' + s.taken.by + ' at ' + s.taken.time;
-      
+    // Map colors correctly based on past data
+    list = r.list.map(s => {
+      let status = r.marks[String(s.roll)];
+      return { roll: s.roll, name: s.name, s: status === 'A' ? 'A' : (status === 'P' ? 'P' : 'P') };
+    });
+
+    if (r.taken && !isEditing) {
+      // Show Success Box
+      $('taken').hidden = true;
       $('successBox').hidden = false;
-      $('successMsg').textContent = 'Submitted at ' + s.taken.time;
+      $('successMsg').textContent = 'Submitted at ' + r.taken.time + ' by ' + r.taken.by;
       
       if (D.isLocked) {
         $('editBtn').hidden = true;
@@ -210,12 +205,9 @@ async function loadList() {
       
       $('markSection').hidden = true;
       $('footBar').hidden = true;
-      
-      // Load list just to have data ready if they click Edit
-      list = s.list;
     } else {
-      // Not taken yet
-      if (D.isLocked) {
+      // Show Marking Screen
+      if (D.isLocked && !isEditing) {
         msg('Attendance is locked. You cannot mark attendance after 6:00 PM.', 'err');
         $('sbtn').disabled = true;
       } else {
@@ -223,7 +215,6 @@ async function loadList() {
         $('sbtn').disabled = false;
       }
       
-      list = savedList.map(x => ({ roll: x.roll, name: x.name, s: 'P' })); // Default P
       $('taken').hidden = true;
       $('successBox').hidden = true;
       $('markSection').hidden = false;
@@ -232,12 +223,7 @@ async function loadList() {
     }
     
   } catch (e) { 
-    msg('Offline mode: ' + e.message, 'err');
-    // Fallback to saved list
-    list = savedList.map(x => ({ roll: x.roll, name: x.name, s: 'P' }));
-    $('markSection').hidden = false;
-    $('footBar').hidden = false;
-    draw();
+    msg('Error: ' + e.message, 'err');
   }
 }
 
@@ -246,22 +232,17 @@ function enableEdit() {
     alert('Attendance is locked after 6:00 PM.');
     return;
   }
+  isEditing = true;
   $('successBox').hidden = true;
   $('markSection').hidden = false;
   $('footBar').hidden = false;
+  msg('You can now edit attendance.', 'ok');
   draw();
 }
 
 async function pullData() {
   if (!confirm('Download the latest student list from the Sheet?')) return;
-  msg('Refreshing...');
-  try {
-    const d = await call({ action: 'pullData', cls });
-    savedList = d.list;
-    localStorage.setItem('list', JSON.stringify(savedList));
-    msg('Student list updated!', 'ok');
-    loadList();
-  } catch (e) { msg(e.message, 'err'); }
+  loadList();
 }
 
 function draw() {
@@ -274,7 +255,6 @@ function draw() {
 }
 
 function mark(i, v) { list[i].s = v; draw(); }
-function all(v) { list.forEach(s => s.s = v); draw(); }
 
 async function save() {
   const p = list.filter(s => s.s == 'P').length;
@@ -306,7 +286,7 @@ function logout() {
   location.reload();
 }
 
-if (code && savedPin && savedList.length > 0) {
+if (code && savedPin) {
   $('login').hidden = true;
   $('pinScreen').hidden = false;
   $('pinName').textContent = teacher;
