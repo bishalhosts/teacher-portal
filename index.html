@@ -34,10 +34,10 @@ button:disabled{opacity:.5}
 .err{color:#c62828}
 .ok{color:#1e8a3e}
 .note{background:#fff7d6;border:1px solid #e0c85a;padding:8px;margin-bottom:8px;font-size:14px}
-.success-box{background:#d9ead3;border:2px solid #1e8a3e;color:#1e8a3e;padding:16px;text-align:center;border-radius:6px;margin-bottom:12px}
-.success-box h3{margin:0 0 8px 0;font-size:20px}
-.success-box p{margin:0 0 12px 0;font-weight:600}
-.success-box button{background:#1e8a3e;color:#fff;width:auto;padding:8px 16px;margin:0 auto;display:inline-block}
+.success-box{background:#d9ead3;border:2px solid #1e8a3e;color:#1e8a3e;padding:24px 16px;text-align:center;border-radius:6px}
+.success-box h2{margin:0 0 10px 0;font-size:24px}
+.success-box p{margin:0 0 20px 0;font-weight:600;font-size:16px}
+.success-box button{background:#1e8a3e;color:#fff;width:auto;padding:10px 24px;margin:0 auto;display:inline-block;font-size:16px;font-weight:bold}
 small{color:#5a6577}
 [hidden]{display:none!important}
 </style>
@@ -67,24 +67,25 @@ small{color:#5a6577}
 <div id="app" hidden>
   <div class="bar">
     <span id="who"></span>
-    <span><a onclick="pullData()">Refresh List</a> &nbsp; <a onclick="logout()">Logout</a></span>
+    <span><a onclick="logout()">Logout</a></span>
   </div>
   
   <div class="card">
+    <!-- Success Screen (Shows after saving) -->
     <div id="successBox" class="success-box" hidden>
-      <h3>✅ Attendance Completed</h3>
+      <h2>✅ Attendance Completed</h2>
       <p id="successMsg"></p>
       <button id="editBtn" onclick="enableEdit()">Edit Attendance</button>
     </div>
 
-    <div id="taken" class="note" hidden></div>
-    
-    <div id="markSection">
+    <!-- Marking Screen (Shows when editing or taking attendance) -->
+    <div id="markSection" hidden>
       <div id="list"></div>
     </div>
   </div>
   
-  <div class="foot" id="footBar">
+  <!-- Footer Save Buttons (Only shows when marking) -->
+  <div class="foot" id="footBar" hidden>
     <b id="cnt"></b>
     <button class="g" onclick="copyAbs()">Copy absent</button>
     <button id="sbtn" onclick="save()">Save</button>
@@ -103,7 +104,7 @@ let cls = localStorage.getItem('cls') || '';
 let teacher = localStorage.getItem('teacher') || '';
 let savedPin = localStorage.getItem('pin') || '';
 
-let D, list = [], isEditing = false;
+let D, list = [];
 
 $('school').textContent = SCHOOL;
 $('sub').textContent = SUB;
@@ -157,7 +158,7 @@ function checkPin() {
   if (p === savedPin) {
     $('pinScreen').hidden = true;
     $('app').hidden = false;
-    msg('');
+    msg('Loading data...');
     loadList();
   } else {
     msg('Wrong PIN', 'err');
@@ -166,60 +167,32 @@ function checkPin() {
 }
 
 async function loadList() {
-  msg('Checking status...');
   try {
     const r = await call({ action: 'pullData', cls }); 
     D = r.d;
-    isEditing = false;
     
     if (D.closed) {
       msg('School closed today: ' + D.closed, 'err');
-      $('list').innerHTML = '<p style="text-align:center;color:#c62828;font-weight:bold;">School is closed today.</p>';
-      $('sbtn').disabled = true;
-      $('footBar').hidden = true;
+      $('successBox').hidden = true;
       $('markSection').hidden = false;
+      $('footBar').hidden = true;
+      $('list').innerHTML = '<p style="text-align:center;color:#c62828;font-weight:bold;padding:20px;">School is closed today.</p>';
       return;
     }
 
     $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
     
-    // Map colors correctly based on past data
+    // Load list and color past data
     list = r.list.map(s => {
       let status = r.marks[String(s.roll)];
       return { roll: s.roll, name: s.name, s: status === 'A' ? 'A' : (status === 'P' ? 'P' : 'P') };
     });
 
-    if (r.taken && !isEditing) {
-      // Show Success Box
-      $('taken').hidden = true;
-      $('successBox').hidden = false;
-      $('successMsg').textContent = 'Submitted at ' + r.taken.time + ' by ' + r.taken.by;
-      
-      if (D.isLocked) {
-        $('editBtn').hidden = true;
-        msg('Attendance is locked after 6:00 PM.', 'err');
-      } else {
-        $('editBtn').hidden = false;
-        msg('Attendance completed today.', 'ok');
-      }
-      
-      $('markSection').hidden = true;
-      $('footBar').hidden = true;
+    // Check if attendance is already taken today
+    if (r.taken) {
+      showSuccess(r.taken);
     } else {
-      // Show Marking Screen
-      if (D.isLocked && !isEditing) {
-        msg('Attendance is locked. You cannot mark attendance after 6:00 PM.', 'err');
-        $('sbtn').disabled = true;
-      } else {
-        msg('Please mark attendance.', '');
-        $('sbtn').disabled = false;
-      }
-      
-      $('taken').hidden = true;
-      $('successBox').hidden = true;
-      $('markSection').hidden = false;
-      $('footBar').hidden = false;
-      draw();
+      showForm();
     }
     
   } catch (e) { 
@@ -227,22 +200,44 @@ async function loadList() {
   }
 }
 
+function showSuccess(taken) {
+  $('successBox').hidden = false;
+  $('markSection').hidden = true;
+  $('footBar').hidden = true;
+  
+  $('successMsg').textContent = 'Submitted at ' + taken.time + ' by ' + taken.by;
+  
+  if (D.isLocked) {
+    $('editBtn').hidden = true;
+    msg('Attendance is locked after 6:00 PM.', 'err');
+  } else {
+    $('editBtn').hidden = false;
+    msg('Attendance completed today.', 'ok');
+  }
+}
+
+function showForm() {
+  $('successBox').hidden = true;
+  $('markSection').hidden = false;
+  $('footBar').hidden = false;
+  
+  if (D.isLocked) {
+    msg('Attendance is locked. You cannot mark or edit after 6:00 PM.', 'err');
+    $('sbtn').disabled = true;
+  } else {
+    msg('Please mark attendance.', '');
+    $('sbtn').disabled = false;
+  }
+  
+  draw();
+}
+
 function enableEdit() {
   if (D.isLocked) {
     alert('Attendance is locked after 6:00 PM.');
     return;
   }
-  isEditing = true;
-  $('successBox').hidden = true;
-  $('markSection').hidden = false;
-  $('footBar').hidden = false;
-  msg('You can now edit attendance.', 'ok');
-  draw();
-}
-
-async function pullData() {
-  if (!confirm('Download the latest student list from the Sheet?')) return;
-  loadList();
+  showForm();
 }
 
 function draw() {
@@ -254,7 +249,10 @@ function draw() {
   $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
 }
 
-function mark(i, v) { list[i].s = v; draw(); }
+function mark(i, v) { 
+  list[i].s = v; 
+  draw(); 
+}
 
 async function save() {
   const p = list.filter(s => s.s == 'P').length;
@@ -268,7 +266,8 @@ async function save() {
   try {
     const r = await call({ action: 'save', cls, teacher, marks: list.map(s => ({ roll: s.roll, s: s.s })) });
     msg('Saved successfully!', 'ok');
-    loadList(); // Reload to show success box
+    // Instantly show the success box without reloading the whole app
+    showSuccess({ time: r.time, by: teacher }); 
   } catch (e) {
     msg('Not saved: ' + e.message, 'err');
     $('sbtn').disabled = false;
@@ -286,6 +285,7 @@ function logout() {
   location.reload();
 }
 
+// Auto-login if already saved
 if (code && savedPin) {
   $('login').hidden = true;
   $('pinScreen').hidden = false;
