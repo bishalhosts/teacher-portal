@@ -108,16 +108,23 @@ async function login(silent) {
   if (!silent) msg('Checking...');
   
   try {
-    const r = await call({ action: 'login' });
-    localStorage.setItem('code', code);
-    localStorage.setItem('cls', r.cls);
-    localStorage.setItem('teacher', r.teacher);
+    let c = localStorage.getItem('cls');
+    let t = localStorage.getItem('teacher');
     
-    D = r.d;
-    cls = r.cls;
-    teacher = r.teacher;
+    // If we don't have teacher/class saved, fetch it via login
+    if (!c || !t || !silent) {
+      const r = await call({ action: 'login' });
+      c = r.cls;
+      t = r.teacher;
+      D = r.d;
+      localStorage.setItem('cls', c);
+      localStorage.setItem('teacher', t);
+    }
     
-    if (D.closed) {
+    cls = c;
+    teacher = t;
+    
+    if (D && D.closed) {
       $('login').hidden = true;
       $('app').hidden = true;
       msg('School closed today: ' + D.closed, 'err');
