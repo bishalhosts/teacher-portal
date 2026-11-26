@@ -18,13 +18,15 @@ header p{margin:4px 0 0;opacity:.85;font-size:14px}
 .bar{position:sticky;top:0;background:#fff;border-bottom:2px solid #12306b;padding:8px 12px;display:flex;justify-content:space-between;gap:8px;font-size:14px;z-index:2}
 .bar a{color:#c62828;cursor:pointer;text-decoration:underline}
 .card{background:#fff;border:1px solid #c9d1de;margin:14px auto;max-width:520px;padding:16px}
-input,select,button{font:inherit;padding:12px;width:100%;margin:6px 0;border:1px solid #8a96ab;border-radius:0}
+input,button{font:inherit;padding:12px;width:100%;margin:6px 0;border:1px solid #8a96ab;border-radius:0}
 button{background:#12306b;color:#fff;border:0;cursor:pointer}
 button:disabled{opacity:.5}
-.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #e3e7ef}
+.row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid #e3e7ef}
+.row.rp{background:#f1faf1}
+.row.ra{background:#fdecec}
 .row b{width:34px}
 .row span{flex:1}
-.row button{width:58px;margin:0;padding:10px;background:#fff;color:#1b2433;border:1px solid #8a96ab}
+.row button{width:64px;margin:0;padding:14px 0;font-size:20px;font-weight:700;background:#fff;color:#1b2433;border:2px solid #8a96ab}
 .row button.p{background:#1e8a3e;color:#fff;border-color:#1e8a3e}
 .row button.a{background:#c62828;color:#fff;border-color:#c62828}
 .foot{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid #12306b;padding:8px 12px;display:flex;gap:8px;align-items:center}
@@ -33,58 +35,47 @@ button:disabled{opacity:.5}
 #msg{text-align:center;font-weight:600;min-height:22px;margin:8px}
 .err{color:#c62828}
 .ok{color:#1e8a3e}
-.note{background:#fff7d6;border:1px solid #e0c85a;padding:8px;margin-bottom:8px;font-size:14px}
 .success-box{background:#d9ead3;border:2px solid #1e8a3e;color:#1e8a3e;padding:24px 16px;text-align:center;border-radius:6px}
-.success-box h2{margin:0 0 10px 0;font-size:24px}
-.success-box p{margin:0 0 20px 0;font-weight:600;font-size:16px}
-.success-box button{background:#1e8a3e;color:#fff;width:auto;padding:10px 24px;margin:0 auto;display:inline-block;font-size:16px;font-weight:bold}
+.success-box .tick{font-size:64px;line-height:1}
+.success-box h2{margin:8px 0 10px;font-size:26px}
+.success-box p{margin:0 0 18px;font-weight:600;font-size:16px}
+.success-box button{background:#1e8a3e;width:auto;padding:12px 28px;margin:0 auto;display:inline-block;font-weight:700}
+.success-box #lockMsg{color:#c62828;margin:0}
 small{color:#5a6577}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <div class="strip"></div>
-<header>
-  <h1 id="school"></h1>
-  <p id="sub"></p>
-</header>
+<header><h1 id="school"></h1><p id="sub"></p></header>
 <div id="msg"></div>
 
-<div class="card" id="login">
+<div class="card" id="login" hidden>
   <b>Enter weekly code</b>
   <input id="code" placeholder="6-character code" autocomplete="off" maxlength="10">
-  <button id="lbtn" onclick="login()">Download & Save Data</button>
+  <button id="lbtn" onclick="login()">Continue</button>
   <small>Your code changes every Sunday at 12 AM.</small>
 </div>
 
 <div class="card" id="pinScreen" hidden>
   <b>Welcome back, <span id="pinName"></span></b>
   <input id="pin" type="password" placeholder="Enter 4-digit PIN" inputmode="numeric" maxlength="4" autocomplete="off">
-  <button onclick="checkPin()">Open App</button>
-  <small><a onclick="logout()" style="color:#c62828;cursor:pointer;">Log out & enter code again</a></small>
+  <button id="pbtn" onclick="checkPin()">Open App</button>
+  <small><a onclick="logout()" style="color:#c62828;cursor:pointer">Log out &amp; enter code again</a></small>
 </div>
 
 <div id="app" hidden>
-  <div class="bar">
-    <span id="who"></span>
-    <span><a onclick="logout()">Logout</a></span>
-  </div>
-  
+  <div class="bar"><span id="who"></span><span><a onclick="logout()">Logout</a></span></div>
   <div class="card">
-    <!-- Success Screen (Shows after saving) -->
     <div id="successBox" class="success-box" hidden>
-      <h2>✅ Attendance Completed</h2>
+      <div class="tick">✅</div>
+      <h2>Attendance Completed</h2>
       <p id="successMsg"></p>
       <button id="editBtn" onclick="enableEdit()">Edit Attendance</button>
+      <p id="lockMsg" hidden>Attendance is locked after 6:00 PM.</p>
     </div>
-
-    <!-- Marking Screen (Shows when editing or taking attendance) -->
-    <div id="markSection" hidden>
-      <div id="list"></div>
-    </div>
+    <div id="markSection" hidden><div id="list"></div></div>
   </div>
-  
-  <!-- Footer Save Buttons (Only shows when marking) -->
   <div class="foot" id="footBar" hidden>
     <b id="cnt"></b>
     <button class="g" onclick="copyAbs()">Copy absent</button>
@@ -99,179 +90,120 @@ const SUB = 'Daily Attendance Portal';
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
 
-let code = localStorage.getItem('code') || '';
-let cls = localStorage.getItem('cls') || '';
-let teacher = localStorage.getItem('teacher') || '';
-let savedPin = localStorage.getItem('pin') || '';
+let code = localStorage.getItem('code') || '', teacher = localStorage.getItem('teacher') || '', cls = '', savedPin = '';
+let D = null, list = [], lastTaken = null, skew = 0, loginP = null, dataP = null, dataAt = 0;
 
-let D, list = [];
-
-$('school').textContent = SCHOOL;
-$('sub').textContent = SUB;
-document.title = SCHOOL;
-
+$('school').textContent = SCHOOL; $('sub').textContent = SUB; document.title = SCHOOL;
 function msg(t, c) { $('msg').textContent = t; $('msg').className = c || ''; }
+function locked() { return D && Date.now() + skew >= D.lockAt; } // 6:00 PM Nepal time, taken from the server's clock
 
 async function call(o) {
+  if (API.indexOf('YOUR_WEB_APP') >= 0) throw new Error('Put your Apps Script web app URL in index.html (API).');
   o.code = code;
   const r = await fetch(API, { method: 'POST', body: JSON.stringify(o) });
   const j = await r.json();
   if (j.error) throw new Error(j.error);
   return j;
 }
+function setUser(r) {
+  savedPin = String(r.pin || '');
+  if (!savedPin) throw new Error('No PIN set for this teacher in the Sheet.');
+  teacher = r.teacher; cls = r.cls; localStorage.setItem('teacher', teacher);
+}
+// Loads students and today's marks in the background, so they are ready when the PIN is entered.
+function fetchData() { dataAt = Date.now(); dataP = call({ action: 'pullData' }); dataP.catch(() => {}); return dataP; }
+function showPin() { $('login').hidden = true; $('pinScreen').hidden = false; $('pinName').textContent = teacher; $('pin').value = ''; $('pin').focus(); }
+function fail(e) {
+  let m = e.message;
+  if (/^Bad request/.test(m)) m = 'The server is out of date. In Apps Script: Deploy > Manage deployments > Edit > New version > Deploy.';
+  dataP = null;
+  if (/wrong|expired|not assigned/i.test(m)) {
+    localStorage.removeItem('code'); code = ''; loginP = null;
+    $('pinScreen').hidden = true; $('app').hidden = true; $('login').hidden = false;
+  }
+  msg(m, 'err');
+}
 
 async function login() {
   code = $('code').value.trim().toUpperCase();
   if (!code) return;
-  
-  $('lbtn').disabled = true;
-  msg('Verifying code...');
-  
+  $('lbtn').disabled = true; msg('Verifying code...');
   try {
-    const r = await call({ action: 'login' });
-    if (!r.pin) throw new Error('No PIN set for this teacher in the Sheet.');
-    
-    cls = r.cls;
-    teacher = r.teacher;
-    savedPin = r.pin;
-    
+    setUser(await call({ action: 'login' }));
     localStorage.setItem('code', code);
-    localStorage.setItem('cls', cls);
-    localStorage.setItem('teacher', teacher);
-    localStorage.setItem('pin', savedPin);
-    
-    $('login').hidden = true;
-    $('pinScreen').hidden = false;
-    $('pinName').textContent = teacher;
-    $('pin').value = '';
-    $('pin').focus();
-    msg('Code verified! Enter your PIN.', 'ok');
-    
-  } catch (e) {
-    msg(e.message, 'err');
-  }
+    fetchData();                     // start loading now, but show nothing until the PIN is correct
+    showPin(); msg('Code verified. Enter your PIN.', 'ok');
+  } catch (e) { fail(e); }
   $('lbtn').disabled = false;
 }
 
-function checkPin() {
-  const p = $('pin').value;
-  if (p === savedPin) {
-    $('pinScreen').hidden = true;
-    $('app').hidden = false;
-    msg('Loading data...');
-    loadList();
-  } else {
-    msg('Wrong PIN', 'err');
-    $('pin').value = '';
-  }
-}
-
-async function loadList() {
+async function checkPin() {
+  const p = $('pin').value.trim(); if (!p) return;
+  $('pbtn').disabled = true; msg('Checking PIN...');
   try {
-    const r = await call({ action: 'pullData', cls }); 
-    D = r.d;
-    
-    if (D.closed) {
-      msg('School closed today: ' + D.closed, 'err');
-      $('successBox').hidden = true;
-      $('markSection').hidden = false;
-      $('footBar').hidden = true;
-      $('list').innerHTML = '<p style="text-align:center;color:#c62828;font-weight:bold;padding:20px;">School is closed today.</p>';
-      return;
-    }
-
-    $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
-    
-    // Load list and color past data
-    list = r.list.map(s => {
-      let status = r.marks[String(s.roll)];
-      return { roll: s.roll, name: s.name, s: status === 'A' ? 'A' : (status === 'P' ? 'P' : 'P') };
-    });
-
-    // Check if attendance is already taken today
-    if (r.taken) {
-      showSuccess(r.taken);
-    } else {
-      showForm();
-    }
-    
-  } catch (e) { 
-    msg('Error: ' + e.message, 'err');
-  }
+    if (!savedPin && !loginP) loginP = call({ action: 'login' });
+    if (loginP) { setUser(await loginP); loginP = null; }
+    if (p !== savedPin) { msg('Wrong PIN', 'err'); $('pin').value = ''; return; }
+    $('pinScreen').hidden = true; $('app').hidden = false; msg('Loading attendance...');
+    render(!dataP || Date.now() - dataAt > 120000 ? await fetchData() : await dataP);
+  } catch (e) {
+    $('app').hidden = true; loginP = null; if ($('login').hidden) $('pinScreen').hidden = false; fail(e);
+  } finally { $('pbtn').disabled = false; }
 }
 
-function showSuccess(taken) {
-  $('successBox').hidden = false;
-  $('markSection').hidden = true;
-  $('footBar').hidden = true;
-  
-  $('successMsg').textContent = 'Submitted at ' + taken.time + ' by ' + taken.by;
-  
-  if (D.isLocked) {
-    $('editBtn').hidden = true;
-    msg('Attendance is locked after 6:00 PM.', 'err');
-  } else {
-    $('editBtn').hidden = false;
-    msg('Attendance completed today.', 'ok');
+function render(r) {
+  D = r.d; skew = D.now - Date.now();
+  $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
+  msg('');
+  if (D.closed) {
+    $('successBox').hidden = true; $('footBar').hidden = true; $('markSection').hidden = false;
+    $('list').innerHTML = '<p class="err" style="text-align:center;font-weight:700;padding:20px">School closed today: ' + esc(D.closed) + '</p>';
+    return;
   }
+  list = r.list.map(s => ({ roll: s.roll, name: s.name, s: r.marks[String(s.roll)] === 'A' ? 'A' : 'P' }));
+  lastTaken = r.taken;
+  if (r.taken) showSuccess(r.taken); else showForm();
+}
+
+function showSuccess(t) {
+  $('successBox').hidden = false; $('markSection').hidden = true; $('footBar').hidden = true;
+  $('successMsg').textContent = 'Submitted at ' + t.time + ' by ' + t.by;
+  const lk = locked(); $('editBtn').hidden = lk; $('lockMsg').hidden = !lk; msg('');
 }
 
 function showForm() {
-  $('successBox').hidden = true;
-  $('markSection').hidden = false;
-  $('footBar').hidden = false;
-  
-  if (D.isLocked) {
-    msg('Attendance is locked. You cannot mark or edit after 6:00 PM.', 'err');
-    $('sbtn').disabled = true;
-  } else {
-    msg('Please mark attendance.', '');
-    $('sbtn').disabled = false;
+  $('successBox').hidden = true; $('markSection').hidden = false;
+  if (locked()) {
+    $('footBar').hidden = true; msg('');
+    $('list').innerHTML = '<p class="err" style="text-align:center;font-weight:700;padding:20px">Attendance is locked after 6:00 PM.</p>';
+    return;
   }
-  
+  $('footBar').hidden = false; $('sbtn').disabled = false;
+  msg(lastTaken ? 'Editing saved attendance. Green = present, red = absent.' : 'Please mark attendance.');
   draw();
 }
 
-function enableEdit() {
-  if (D.isLocked) {
-    alert('Attendance is locked after 6:00 PM.');
-    return;
-  }
-  showForm();
-}
+function enableEdit() { if (locked()) showSuccess(lastTaken); else showForm(); }
 
 function draw() {
-  $('list').innerHTML = list.map((s, i) => 
-    `<div class="row"><b>${esc(s.roll)}</b><span>${esc(s.name)}</span><button class="${s.s == 'P' ? 'p' : ''}" onclick="mark(${i},'P')">P</button><button class="${s.s == 'A' ? 'a' : ''}" onclick="mark(${i},'A')">A</button></div>`
+  $('list').innerHTML = list.map((s, i) =>
+    `<div class="row ${s.s == 'A' ? 'ra' : 'rp'}"><b>${esc(s.roll)}</b><span>${esc(s.name)}</span><button class="${s.s == 'P' ? 'p' : ''}" onclick="mark(${i},'P')">P</button><button class="${s.s == 'A' ? 'a' : ''}" onclick="mark(${i},'A')">A</button></div>`
   ).join('') || '<p>No students found.</p>';
-  
   const p = list.filter(s => s.s == 'P').length;
   $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
 }
-
-function mark(i, v) { 
-  list[i].s = v; 
-  draw(); 
-}
+function mark(i, v) { list[i].s = v; draw(); }
 
 async function save() {
-  const p = list.filter(s => s.s == 'P').length;
-  const a = list.length - p;
-  
+  const p = list.filter(s => s.s == 'P').length, a = list.length - p;
   if (!list.length || !confirm('Class ' + cls + ': ' + p + ' present, ' + a + ' absent. Save?')) return;
-  
-  $('sbtn').disabled = true;
-  msg('Saving...');
-  
+  $('sbtn').disabled = true; msg('Saving...');
   try {
-    const r = await call({ action: 'save', cls, teacher, marks: list.map(s => ({ roll: s.roll, s: s.s })) });
-    msg('Saved successfully!', 'ok');
-    // Instantly show the success box without reloading the whole app
-    showSuccess({ time: r.time, by: teacher }); 
-  } catch (e) {
-    msg('Not saved: ' + e.message, 'err');
-    $('sbtn').disabled = false;
-  }
+    const r = await call({ action: 'save', marks: list.map(s => ({ roll: s.roll, s: s.s })) });
+    lastTaken = { time: r.time, by: teacher };
+    showSuccess(lastTaken); msg('Saved successfully!', 'ok');   // list, Copy absent and Save disappear here
+  } catch (e) { msg('Not saved: ' + e.message, 'err'); }
+  $('sbtn').disabled = false;
 }
 
 function copyAbs() {
@@ -279,21 +211,17 @@ function copyAbs() {
   navigator.clipboard.writeText(t).then(() => msg('Absent list copied', 'ok'));
 }
 
-function logout() {
-  localStorage.removeItem('code');
-  localStorage.removeItem('pin');
-  location.reload();
-}
+function logout() { localStorage.removeItem('code'); localStorage.removeItem('teacher'); location.reload(); }
 
-// Auto-login if already saved
-if (code && savedPin) {
-  $('login').hidden = true;
-  $('pinScreen').hidden = false;
-  $('pinName').textContent = teacher;
-  $('pin').focus();
-} else {
-  $('login').hidden = false;
-}
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+$('pin').addEventListener('keydown', e => { if (e.key === 'Enter') checkPin(); });
+
+// Already logged in on this phone: ask for the PIN, and load the data quietly while the teacher types it.
+if (code && teacher) {
+  showPin();
+  loginP = call({ action: 'login' });
+  loginP.then(r => { setUser(r); fetchData(); }).catch(() => {});
+} else { $('login').hidden = false; }
 </script>
 </body>
 </html>
