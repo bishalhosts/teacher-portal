@@ -46,17 +46,27 @@ small{color:#5a6577}
 </header>
 <div id="msg"></div>
 
+<!-- Login Screen (Weekly Code) -->
 <div class="card" id="login">
-  <b>Enter your teacher code</b>
+  <b>Enter weekly code</b>
   <input id="code" placeholder="6-character code" autocomplete="off" maxlength="10">
-  <button id="lbtn" onclick="login()">Continue</button>
-  <small>Your code is unique to you and changes every Sunday at 12 AM.</small>
+  <button id="lbtn" onclick="login()">Download & Save Data</button>
+  <small>Your code changes every Sunday at 12 AM.</small>
 </div>
 
+<!-- PIN Screen (If already logged in this week) -->
+<div class="card" id="pinScreen" hidden>
+  <b>Welcome back, <span id="pinName"></span></b>
+  <input id="pin" type="password" placeholder="Enter 4-digit PIN" inputmode="numeric" maxlength="4" autocomplete="off">
+  <button onclick="checkPin()">Open App</button>
+  <small><a onclick="logout()" style="color:#c62828;cursor:pointer;">Log out & enter code again</a></small>
+</div>
+
+<!-- App Screen -->
 <div id="app" hidden>
   <div class="bar">
     <span id="who"></span>
-    <span><a onclick="logout()">Logout</a></span>
+    <span><a onclick="pullData()">Refresh List</a> &nbsp; <a onclick="logout()">Logout</a></span>
   </div>
   <div class="card">
     <div id="taken" class="note" hidden></div>
@@ -74,23 +84,27 @@ small{color:#5a6577}
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbzjR4l_DgGrG9F0A_3YsN4EF6kaeVHCvoKXgLWG3wHyD0o6yPqTVFPobz6JAyQMAnoC/exec';
+const API = 'YOUR_WEB_APP_URL_HERE';
 const SCHOOL = 'JanaPrakash School';
 const SUB = 'Daily Attendance Portal';
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
 
+// Local storage variables
 let code = localStorage.getItem('code') || '';
-let D, list = [], cls = '', teacher = '';
+let cls = localStorage.getItem('cls') || '';
+let teacher = localStorage.getItem('teacher') || '';
+let savedPin = localStorage.getItem('pin') || '';
+let savedList = JSON.parse(localStorage.getItem('list') || '[]');
+let lastFetch = localStorage.getItem('lastFetch') || 0;
+
+let D, list = [];
 
 $('school').textContent = SCHOOL;
 $('sub').textContent = SUB;
 document.title = SCHOOL;
 
-function msg(t, c) { 
-  $('msg').textContent = t; 
-  $('msg').className = c || ''; 
-}
+function msg(t, c) { $('msg').textContent = t; $('msg').className = c || ''; }
 
 async function call(o) {
   o.code = code;
@@ -100,85 +114,106 @@ async function call(o) {
   return j;
 }
 
-async function login(silent) {
-  if (!silent) code = $('code').value.trim().toUpperCase();
+// Step 1: Teacher enters the weekly code
+async function login() {
+  code = $('code').value.trim().toUpperCase();
   if (!code) return;
   
   $('lbtn').disabled = true;
-  if (!silent) msg('Checking...');
+  msg('Downloading class data...');
   
   try {
-    let c = localStorage.getItem('cls');
-    let t = localStorage.getItem('teacher');
+    const r = await call({ action: 'login' });
+    if (!r.pin) throw new Error('No PIN set for this teacher in the Sheet.');
     
-    // If we don't have teacher/class saved, fetch it via login
-    if (!c || !t || !silent) {
-      const r = await call({ action: 'login' });
-      c = r.cls;
-      t = r.teacher;
-      D = r.d;
-      localStorage.setItem('cls', c);
-      localStorage.setItem('teacher', t);
-    }
+    cls = r.cls;
+    teacher = r.teacher;
+    savedPin = r.pin;
+    D = r.d;
     
-    cls = c;
-    teacher = t;
+    const d = await call({ action: 'pullData', cls });
+    savedList = d.list;
+    lastFetch = Date.now();
     
-    if (D && D.closed) {
-      $('login').hidden = true;
-      $('app').hidden = true;
-      msg('School closed today: ' + D.closed, 'err');
-      return;
-    }
-    
-    const s = await call({ action: 'students', cls });
-    list = s.list;
-    D = s.d;
+    // Save everything to phone
+    localStorage.setItem('code', code);
+    localStorage.setItem('cls', cls);
+    localStorage.setItem('teacher', teacher);
+    localStorage.setItem('pin', savedPin);
+    localStorage.setItem('list', JSON.stringify(savedList));
+    localStorage.setItem('lastFetch', lastFetch);
     
     $('login').hidden = true;
-    $('app').hidden = false;
-    msg('');
+    $('pinScreen').hidden = false;
+    $('pinName').textContent = teacher;
+    $('pin').value = '';
+    $('pin').focus();
+    msg('Data saved! Enter your PIN.', 'ok');
     
-    $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
-    $('taken').hidden = !s.taken;
-    if (s.taken) {
-      $('taken').textContent = 'Attendance already taken by ' + s.taken.by + ' at ' + s.taken.time + '. You can edit and save again.';
-    }
-    draw();
   } catch (e) {
-    if (!silent) {
-      msg(e.message, 'err');
-    } else {
-      localStorage.removeItem('code');
-      localStorage.removeItem('cls');
-      localStorage.removeItem('teacher');
-      code = '';
-      $('app').hidden = true;
-      $('login').hidden = false;
-      msg("Code expired. Enter today's code.", 'err');
-    }
+    msg(e.message, 'err');
   }
   $('lbtn').disabled = false;
+}
+
+// Step 2: PIN Check
+function checkPin() {
+  const p = $('pin').value;
+  if (p === savedPin) {
+    $('pinScreen').hidden = true;
+    $('app').hidden = false;
+    msg('');
+    loadList();
+  } else {
+    msg('Wrong PIN', 'err');
+    $('pin').value = '';
+  }
+}
+
+// Step 3: Load offline data into the UI
+function loadList() {
+  // Check if today is closed by fetching fresh info
+  call({ action: 'login' }).then(r => {
+    D = r.d;
+    if (D.closed) {
+      msg('School closed today: ' + D.closed, 'err');
+      $('list').innerHTML = '<p style="text-align:center;color:#c62828;font-weight:bold;">School is closed today.</p>';
+      $('sbtn').disabled = true;
+      return;
+    }
+    $('sbtn').disabled = false;
+    
+    // Default all to Present if not saved yet
+    list = savedList.map(s => ({ roll: s.roll, name: s.name, s: 'P' }));
+    $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
+    draw();
+  }).catch(e => msg('Offline mode: ' + e.message, 'err'));
+}
+
+async function pullData() {
+  if (!confirm('This will download the latest student list from the Sheet. OK?')) return;
+  msg('Refreshing...');
+  try {
+    const d = await call({ action: 'pullData', cls });
+    savedList = d.list;
+    localStorage.setItem('list', JSON.stringify(savedList));
+    localStorage.setItem('lastFetch', Date.now());
+    msg('Student list updated!', 'ok');
+    loadList();
+  } catch (e) { msg(e.message, 'err'); }
 }
 
 function draw() {
   $('list').innerHTML = list.map((s, i) => 
     `<div class="row"><b>${esc(s.roll)}</b><span>${esc(s.name)}</span><button class="${s.s == 'P' ? 'p' : ''}" onclick="mark(${i},'P')">P</button><button class="${s.s == 'A' ? 'a' : ''}" onclick="mark(${i},'A')">A</button></div>`
-  ).join('') || '<p>No students in this class.</p>';
+  ).join('') || '<p>No students found.</p>';
   
   const p = list.filter(s => s.s == 'P').length;
   $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
 }
 
-function mark(i, v) { 
-  list[i].s = v; 
-  draw(); 
-}
-
-function all(v) { 
-  list.forEach(s => s.s = v); 
-  draw(); 
-}
+function mark(i, v) { list[i].s = v; draw(); }
+function all(v) { list.forEach(s => s.s = v); draw(); }
 
 async function save() {
   const p = list.filter(s => s.s == 'P').length;
@@ -199,18 +234,26 @@ async function save() {
 }
 
 function copyAbs() {
-  const t = 'Class ' + cls + ' absent (' + D.label.split(' | ')[2] + '): ' + (list.filter(s => s.s == 'A').map(s => s.roll + ' ' + s.name).join(', ') || 'none');
+  const t = 'Class ' + cls + ' absent (' + (D ? D.label.split(' | ')[2] : '') + '): ' + (list.filter(s => s.s == 'A').map(s => s.roll + ' ' + s.name).join(', ') || 'none');
   navigator.clipboard.writeText(t).then(() => msg('Absent list copied', 'ok'));
 }
 
+// Logout clears the weekly code but keeps the student list
 function logout() {
   localStorage.removeItem('code');
-  localStorage.removeItem('cls');
-  localStorage.removeItem('teacher');
+  localStorage.removeItem('pin');
   location.reload();
 }
 
-if (code) login(true);
+// Auto-login check on load
+if (code && savedPin && savedList.length > 0) {
+  $('login').hidden = true;
+  $('pinScreen').hidden = false;
+  $('pinName').textContent = teacher;
+  $('pin').focus();
+} else {
+  $('login').hidden = false;
+}
 </script>
 </body>
 </html>
