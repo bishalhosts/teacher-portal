@@ -1,121 +1,209 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Daily Attendance Portal</title>
-<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#12306b">
-<link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12306b">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
-*{box-sizing:border-box}body{margin:0;font:16px/1.4 system-ui,sans-serif;background:#eef1f6;color:#1b2433;padding-bottom:84px}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 system-ui,sans-serif;background:#eef1f6;color:#1b2433;padding-bottom:84px}
 .strip{height:6px;background:#c62828}
 header{background:#12306b;color:#fff;text-align:center;padding:16px 10px}
-h1{margin:0;font-size:24px}header p{margin:4px 0 0;opacity:.85;font-size:14px}
+h1{margin:0;font-size:24px}
+header p{margin:4px 0 0;opacity:.85;font-size:14px}
 .bar{position:sticky;top:0;background:#fff;border-bottom:2px solid #12306b;padding:8px 12px;display:flex;justify-content:space-between;gap:8px;font-size:14px;z-index:2}
 .bar a{color:#c62828;cursor:pointer;text-decoration:underline}
 .card{background:#fff;border:1px solid #c9d1de;margin:14px auto;max-width:520px;padding:16px}
 input,select,button{font:inherit;padding:12px;width:100%;margin:6px 0;border:1px solid #8a96ab;border-radius:0}
-button{background:#12306b;color:#fff;border:0;cursor:pointer}button:disabled{opacity:.5}
+button{background:#12306b;color:#fff;border:0;cursor:pointer}
+button:disabled{opacity:.5}
 .row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #e3e7ef}
-.row b{width:34px}.row span{flex:1}
+.row b{width:34px}
+.row span{flex:1}
 .row button{width:58px;margin:0;padding:10px;background:#fff;color:#1b2433;border:1px solid #8a96ab}
-.row button.p{background:#1e8a3e;color:#fff;border-color:#1e8a3e}.row button.a{background:#c62828;color:#fff;border-color:#c62828}
+.row button.p{background:#1e8a3e;color:#fff;border-color:#1e8a3e}
+.row button.a{background:#c62828;color:#fff;border-color:#c62828}
 .foot{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid #12306b;padding:8px 12px;display:flex;gap:8px;align-items:center}
-.foot button{margin:0;width:auto;flex:1}.foot .g{background:#fff;color:#12306b;border:1px solid #12306b;flex:0 0 auto}
-#msg{text-align:center;font-weight:600;min-height:22px;margin:8px}.err{color:#c62828}.ok{color:#1e8a3e}
+.foot button{margin:0;width:auto;flex:1}
+.foot .g{background:#fff;color:#12306b;border:1px solid #12306b;flex:0 0 auto}
+#msg{text-align:center;font-weight:600;min-height:22px;margin:8px}
+.err{color:#c62828}
+.ok{color:#1e8a3e}
 .note{background:#fff7d6;border:1px solid #e0c85a;padding:8px;margin-bottom:8px;font-size:14px}
-small{color:#5a6577}[hidden]{display:none!important}
-</style></head><body>
+small{color:#5a6577}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
 <div class="strip"></div>
-<header><h1 id="school"></h1><p id="sub"></p></header>
+<header>
+  <h1 id="school"></h1>
+  <p id="sub"></p>
+</header>
 <div id="msg"></div>
 
 <div class="card" id="login">
-  <b>Enter today's code</b><input id="code" placeholder="6-character code" autocomplete="off" maxlength="10">
+  <b>Enter your teacher code</b>
+  <input id="code" placeholder="6-character code" autocomplete="off" maxlength="10">
   <button id="lbtn" onclick="login()">Continue</button>
-  <small>The code is shared in the teachers' group. Forgot it? Contact the coordinator.</small>
-</div>
-
-<div class="card" id="pick" hidden>
-  <div id="closed" class="note" hidden></div>
-  <div id="form">
-    <b>Teacher name</b><select id="teacher"></select>
-    <b>Class</b><select id="cls"></select>
-    <button onclick="openClass()">Open class</button>
-  </div>
+  <small>Your code is unique to you and changes every Sunday at 12 AM.</small>
 </div>
 
 <div id="app" hidden>
-  <div class="bar"><span id="who"></span><span><a onclick="back()">Change class</a> &nbsp; <a onclick="logout()">Logout</a></span></div>
-  <div class="card"><div id="taken" class="note" hidden></div>
-    <div style="display:flex;gap:8px"><button class="g" style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('P')">All present</button><button style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('A')">All absent</button></div>
-    <div id="list"></div></div>
-  <div class="foot"><b id="cnt"></b><button class="g" onclick="copyAbs()">Copy absent</button><button id="sbtn" onclick="save()">Save</button></div>
+  <div class="bar">
+    <span id="who"></span>
+    <span><a onclick="logout()">Logout</a></span>
+  </div>
+  <div class="card">
+    <div id="taken" class="note" hidden></div>
+    <div style="display:flex;gap:8px">
+      <button class="g" style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('P')">All present</button>
+      <button style="background:#fff;color:#12306b;border:1px solid #12306b" onclick="all('A')">All absent</button>
+    </div>
+    <div id="list"></div>
+  </div>
+  <div class="foot">
+    <b id="cnt"></b>
+    <button class="g" onclick="copyAbs()">Copy absent</button>
+    <button id="sbtn" onclick="save()">Save</button>
+  </div>
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbzjR4l_DgGrG9F0A_3YsN4EF6kaeVHCvoKXgLWG3wHyD0o6yPqTVFPobz6JAyQMAnoC/exec';
-const SCHOOL = 'JanaPrakash School', SUB = 'Daily Attendance Portal';
-const $ = id => document.getElementById(id), esc = t => String(t).replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
-let code = localStorage.getItem('code') || '', D, list = [], cls = '', teacher = '';
-$('school').textContent = SCHOOL; $('sub').textContent = SUB; document.title = SCHOOL;
+const API = 'YOUR_WEB_APP_URL_HERE';
+const SCHOOL = 'JanaPrakash School';
+const SUB = 'Daily Attendance Portal';
+const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
 
-function msg(t, c) { $('msg').textContent = t; $('msg').className = c || ''; }
+let code = localStorage.getItem('code') || '';
+let D, list = [], cls = '', teacher = '';
+
+$('school').textContent = SCHOOL;
+$('sub').textContent = SUB;
+document.title = SCHOOL;
+
+function msg(t, c) { 
+  $('msg').textContent = t; 
+  $('msg').className = c || ''; 
+}
+
 async function call(o) {
   o.code = code;
-  const r = await fetch(API, { method: 'POST', body: JSON.stringify(o) }), j = await r.json();
-  if (j.error) throw new Error(j.error); return j;
+  const r = await fetch(API, { method: 'POST', body: JSON.stringify(o) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
 }
-function showPick(r) {
-  const t0 = $('teacher').value || localStorage.getItem('teacher'), c0 = $('cls').value || localStorage.getItem('cls');
-  D = r.d; $('login').hidden = true; $('pick').hidden = false;
-  $('teacher').innerHTML = r.teachers.map(t => `<option>${esc(t)}</option>`).join('');
-  $('cls').innerHTML = r.classes.map(c => `<option>${esc(c)}</option>`).join('');
-  $('teacher').value = t0; $('cls').value = c0; if (!$('teacher').value) $('teacher').selectedIndex = 0; if (!$('cls').value) $('cls').selectedIndex = 0;
-  $('closed').hidden = !D.closed; $('closed').textContent = 'School closed today: ' + D.closed; $('form').hidden = !!D.closed;
-}
+
 async function login(silent) {
   if (!silent) code = $('code').value.trim().toUpperCase();
   if (!code) return;
-  $('lbtn').disabled = true; if (!silent) msg('Checking...');
+  
+  $('lbtn').disabled = true;
+  if (!silent) msg('Checking...');
+  
   try {
-    const r = await call({ action: 'login' }); localStorage.setItem('code', code); localStorage.setItem('cfg', JSON.stringify(r));
-    if ($('app').hidden) showPick(r); msg('');
+    const r = await call({ action: 'login' });
+    localStorage.setItem('code', code);
+    localStorage.setItem('cls', r.cls);
+    localStorage.setItem('teacher', r.teacher);
+    
+    D = r.d;
+    cls = r.cls;
+    teacher = r.teacher;
+    
+    if (D.closed) {
+      $('login').hidden = true;
+      $('app').hidden = true;
+      msg('School closed today: ' + D.closed, 'err');
+      return;
+    }
+    
+    const s = await call({ action: 'students', cls });
+    list = s.list;
+    D = s.d;
+    
+    $('login').hidden = true;
+    $('app').hidden = false;
+    msg('');
+    
+    $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
+    $('taken').hidden = !s.taken;
+    if (s.taken) {
+      $('taken').textContent = 'Attendance already taken by ' + s.taken.by + ' at ' + s.taken.time + '. You can edit and save again.';
+    }
+    draw();
   } catch (e) {
-    if (!silent) msg(e.message, 'err');
-    else if (/code/i.test(e.message)) { localStorage.removeItem('code'); localStorage.removeItem('cfg'); code = ''; $('pick').hidden = true; $('app').hidden = true; $('login').hidden = false; msg("Code expired. Enter today's code.", 'err'); }
-    else msg('Could not refresh: ' + e.message, 'err');
+    if (!silent) {
+      msg(e.message, 'err');
+    } else {
+      localStorage.removeItem('code');
+      localStorage.removeItem('cls');
+      localStorage.removeItem('teacher');
+      code = '';
+      $('app').hidden = true;
+      $('login').hidden = false;
+      msg("Code expired. Enter today's code.", 'err');
+    }
   }
   $('lbtn').disabled = false;
 }
-async function openClass() {
-  teacher = $('teacher').value; cls = $('cls').value; if (!teacher) { msg('No teacher names yet. Add them in the Teachers tab of the sheet.', 'err'); return; }
-  localStorage.setItem('teacher', teacher); localStorage.setItem('cls', cls);
-  msg('Loading class...');
-  try {
-    const r = await call({ action: 'students', cls }); list = r.list; D = r.d;
-    $('pick').hidden = true; $('app').hidden = false; msg('');
-    $('who').textContent = teacher + ' | Class ' + cls + ' | ' + D.label.split(' | ').join(' ');
-    $('taken').hidden = !r.taken; if (r.taken) $('taken').textContent = 'Attendance already taken by ' + r.taken.by + ' at ' + r.taken.time + '. You can edit and save again.';
-    draw();
-  } catch (e) { msg(e.message, 'err'); }
-}
+
 function draw() {
-  $('list').innerHTML = list.map((s, i) => `<div class="row"><b>${esc(s.roll)}</b><span>${esc(s.name)}</span><button class="${s.s == 'P' ? 'p' : ''}" onclick="mark(${i},'P')">P</button><button class="${s.s == 'A' ? 'a' : ''}" onclick="mark(${i},'A')">A</button></div>`).join('') || '<p>No students in this class. Add them in the sheet for this class.</p>';
-  const p = list.filter(s => s.s == 'P').length; $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
+  $('list').innerHTML = list.map((s, i) => 
+    `<div class="row"><b>${esc(s.roll)}</b><span>${esc(s.name)}</span><button class="${s.s == 'P' ? 'p' : ''}" onclick="mark(${i},'P')">P</button><button class="${s.s == 'A' ? 'a' : ''}" onclick="mark(${i},'A')">A</button></div>`
+  ).join('') || '<p>No students in this class.</p>';
+  
+  const p = list.filter(s => s.s == 'P').length;
+  $('cnt').textContent = 'P ' + p + ' | A ' + (list.length - p);
 }
-function mark(i, v) { list[i].s = v; draw(); }
-function all(v) { list.forEach(s => s.s = v); draw(); }
+
+function mark(i, v) { 
+  list[i].s = v; 
+  draw(); 
+}
+
+function all(v) { 
+  list.forEach(s => s.s = v); 
+  draw(); 
+}
+
 async function save() {
-  const p = list.filter(s => s.s == 'P').length, a = list.length - p;
+  const p = list.filter(s => s.s == 'P').length;
+  const a = list.length - p;
+  
   if (!list.length || !confirm('Class ' + cls + ': ' + p + ' present, ' + a + ' absent. Save?')) return;
-  $('sbtn').disabled = true; msg('Saving...');
-  try { const r = await call({ action: 'save', cls, teacher, marks: list.map(s => ({ roll: s.roll, s: s.s })) }); msg('Saved at ' + r.time + ' (' + r.p + ' present, ' + r.a + ' absent)', 'ok'); }
-  catch (e) { msg('Not saved: ' + e.message + ' Tap Save to retry.', 'err'); }
+  
+  $('sbtn').disabled = true;
+  msg('Saving...');
+  
+  try {
+    const r = await call({ action: 'save', cls, teacher, marks: list.map(s => ({ roll: s.roll, s: s.s })) });
+    msg('Saved at ' + r.time + ' (' + r.p + ' present, ' + r.a + ' absent)', 'ok');
+  } catch (e) {
+    msg('Not saved: ' + e.message + ' Tap Save to retry.', 'err');
+  }
   $('sbtn').disabled = false;
 }
+
 function copyAbs() {
   const t = 'Class ' + cls + ' absent (' + D.label.split(' | ')[2] + '): ' + (list.filter(s => s.s == 'A').map(s => s.roll + ' ' + s.name).join(', ') || 'none');
   navigator.clipboard.writeText(t).then(() => msg('Absent list copied', 'ok'));
 }
-function back() { $('app').hidden = true; $('pick').hidden = false; msg(''); }
-function logout() { localStorage.removeItem('code'); localStorage.removeItem('cfg'); location.reload(); }
-if (code) { try { const c = JSON.parse(localStorage.getItem('cfg')); if (c) showPick(c); } catch (e) {} login(true); }
-</script></body></html>
+
+function logout() {
+  localStorage.removeItem('code');
+  localStorage.removeItem('cls');
+  localStorage.removeItem('teacher');
+  location.reload();
+}
+
+if (code) login(true);
+</script>
+</body>
+</html>
